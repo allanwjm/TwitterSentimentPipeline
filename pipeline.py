@@ -68,7 +68,7 @@ def process_data_row(city, row):
             pos, neu, neg, compound)
 
 
-def pipeline_worker(taskq, logq):
+def pipeline_worker(i, taskq, logq):
     warnings.filterwarnings('ignore', category=Warning)
     conn = connect()
     try:
@@ -90,8 +90,8 @@ def pipeline_worker(taskq, logq):
             if data_list:
                 insert_count += insertmany(conn, city, data_list)
             set_metadata(conn, '%s_fetch_end' % city, fetch_end)
-            logq.put('%-9s %s: fetched: %d, inserted: %d' % (
-                capitalize(city), fetch_start.date(), fetch_count, insert_count))
+            logq.put('%2d: %-9s %s: fetched: %d, inserted: %d' % (
+                i, capitalize(city), fetch_start.date(), fetch_count, insert_count))
 
     except KeyboardInterrupt:
         pass
@@ -141,7 +141,7 @@ def run_pipeline():
     dispatcher = Process(target=dispatch_worker, args=(taskq,))
     dispatcher.start()
 
-    workers = [Process(target=pipeline_worker, args=(taskq, logq)) for _ in range(cpu_count())]
+    workers = [Process(target=pipeline_worker, args=(i, taskq, logq)) for i in range(cpu_count())]
     for worker in workers:
         worker.start()
     log('%d workers started.' % len(workers))
