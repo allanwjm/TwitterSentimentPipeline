@@ -43,6 +43,7 @@ def process_data_row(city, row):
     user_id = int(t['user']['id_str'])
     text = t['text']
     created_at = datetime.strptime(t['created_at'], '%a %b %d %H:%M:%S %z %Y')
+    created_at = created_at.replace(microsecond=0)
     year = created_at.year
 
     lang = t['lang']

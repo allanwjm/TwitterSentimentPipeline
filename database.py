@@ -77,7 +77,7 @@ def initialize():
 
     metadata = [('created_at', 'datetime', datetime.now().replace(microsecond=0))]
 
-    for city in ['total'] + CITIES:
+    for city in CITIES:
         metadata.append(('%s_fetch_end' % city, 'datetime', datetime(2014, 7, 15)))
 
     c.executemany('INSERT INTO `metadata` VALUES (%s, %s, %s);', metadata)
