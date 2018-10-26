@@ -4,6 +4,7 @@ from datetime import datetime
 from datetime import timedelta
 from multiprocessing import Process
 from multiprocessing import Queue
+from multiprocessing import cpu_count
 from multiprocessing import freeze_support
 from time import sleep
 
@@ -66,18 +67,14 @@ def process_data_row(city, row):
             pos, neu, neg, compound)
 
 
-def pipeline_worker(city, logq):
+def pipeline_worker(taskq, logq):
+    warnings.filterwarnings('ignore', category=Warning)
     conn = connect()
-    fetch_start = get_metadata(conn, '%s_fetch_end' % city) - timedelta(days=1)
-
     try:
         # Worker main loop
-        logq.put('Worker started: %s' % city)
         while True:
-            fetch_start = fetch_start + timedelta(days=1)
+            city, fetch_start = taskq.get()
             fetch_end = fetch_start + timedelta(days=1)
-            while fetch_start > datetime.now() - timedelta(days=7):
-                sleep(60 * 60)
 
             fetch_count = 0
             insert_count = 0
@@ -92,17 +89,43 @@ def pipeline_worker(city, logq):
             if data_list:
                 insert_count += insertmany(conn, city, data_list)
             set_metadata(conn, '%s_fetch_end' % city, fetch_end)
-            set_metadata(conn, 'last_update', datetime.now())
             logq.put('%-9s %s: fetched: %d, inserted: %d' % (
                 capitalize(city), fetch_start.date(), fetch_count, insert_count))
 
     except KeyboardInterrupt:
         pass
 
+    finally:
+        conn.close()
+
+
+def dispatch_worker(taskq):
+    conn = connect()
+    fetch_city_ends = {city: get_metadata(conn, '%s_fetch_end' % city) for city in CITIES}
+    fetch_start = min(fetch_city_ends.values()) - timedelta(days=1)
+    try:
+        while True:
+            fetch_start = fetch_start + timedelta(days=1)
+            fetch_end = fetch_start + timedelta(days=1)
+
+            while fetch_start > datetime.now() - timedelta(days=7):
+                sleep(60 * 60)
+
+            for city in CITIES:
+                if fetch_city_ends[city] < fetch_end:
+                    taskq.put((city, fetch_start))
+
+    except KeyboardInterrupt:
+        pass
+
+    finally:
+        conn.close()
+
 
 def run_pipeline():
     logfp = open('log-pipeline.txt', 'a')
     logq = Queue()
+    taskq = Queue(maxsize=100)
 
     def log(s):
         s = '[%s] %s' % (datetime.now().replace(microsecond=0), s)
@@ -114,9 +137,13 @@ def run_pipeline():
     log('-' * 40)
     log('Starting worker processes...')
 
-    processes = [Process(target=pipeline_worker, args=(city, logq)) for city in CITIES]
-    for p in processes:
-        p.start()
+    dispatcher = Process(target=dispatch_worker, args=(taskq,))
+    dispatcher.start()
+
+    workers = [Process(target=pipeline_worker, args=(taskq, logq)) for _ in range(cpu_count())]
+    for worker in workers:
+        worker.start()
+    log('%d workers started.' % len(workers))
 
     try:
         # Main thread: do logging
@@ -126,9 +153,11 @@ def run_pipeline():
     except KeyboardInterrupt:
         log('Keyboard interrupted! Exiting program...')
 
-    for p in processes:
-        p.terminate()
-        p.join()
+    dispatcher.terminate()
+    dispatcher.join()
+    for worker in workers:
+        worker.terminate()
+        worker.join()
 
     log('Program exited!')
     logfp.close()
@@ -141,12 +170,10 @@ def run_pipeline():
 def main(init_database):
     if init_database:
         if click.confirm('Are you sure to initialize the database? This will clear the database if exists!'):
-            warnings.filterwarnings('ignore', category=Warning)
             initialize()
         else:
             print('Aborted.')
     else:
-        warnings.filterwarnings('ignore', category=Warning)
         run_pipeline()
 
 

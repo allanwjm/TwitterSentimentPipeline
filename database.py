@@ -1,3 +1,4 @@
+import warnings
 from datetime import datetime
 
 import pymysql
@@ -21,6 +22,7 @@ def connect(schema=DATABASE_SCHEMA):
 
 
 def initialize():
+    warnings.filterwarnings('ignore', category=Warning)
     conn = connect(schema=None)
     c = conn.cursor()
 
@@ -73,10 +75,7 @@ def initialize():
         PRIMARY KEY (`key`));
     """)
 
-    metadata = [
-        ('created_at', 'datetime', datetime.now().replace(microsecond=0)),
-        ('last_update', 'datetime', None),
-    ]
+    metadata = [('created_at', 'datetime', datetime.now().replace(microsecond=0))]
 
     for city in ['total'] + CITIES:
         metadata.append(('%s_fetch_end' % city, 'datetime', datetime(2014, 7, 15)))
