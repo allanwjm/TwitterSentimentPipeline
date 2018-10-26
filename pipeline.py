@@ -2,6 +2,9 @@ import sys
 import warnings
 from datetime import datetime
 from datetime import timedelta
+from multiprocessing import Process
+from multiprocessing import Queue
+from multiprocessing import freeze_support
 from time import sleep
 
 import click
@@ -63,9 +66,43 @@ def process_data_row(city, row):
             pos, neu, neg, compound)
 
 
+def pipeline_worker(city, logq):
+    conn = connect()
+    fetch_start = get_metadata(conn, '%s_fetch_end' % city) - timedelta(days=1)
+
+    try:
+        # Worker main loop
+        logq.put('Worker started: %s' % city)
+        while True:
+            fetch_start = fetch_start + timedelta(days=1)
+            fetch_end = fetch_start + timedelta(days=1)
+            while fetch_start > datetime.now() - timedelta(days=7):
+                sleep(60 * 60)
+
+            fetch_count = 0
+            insert_count = 0
+            fetch_data = fetch(city, fetch_start, fetch_end)
+            data_list = []
+            for row in fetch_data['rows']:
+                fetch_count += 1
+                tweet = process_data_row(city, row)
+                if tweet is not None:
+                    data_list.append(tweet)
+
+            if data_list:
+                insert_count += insertmany(conn, city, data_list)
+            set_metadata(conn, '%s_fetch_end' % city, fetch_end)
+            set_metadata(conn, 'last_update', datetime.now())
+            logq.put('%-9s %s: fetched: %d, inserted: %d' % (
+                capitalize(city), fetch_start.date(), fetch_count, insert_count))
+
+    except KeyboardInterrupt:
+        pass
+
+
 def run_pipeline():
-    warnings.filterwarnings('ignore', category=Warning)
     logfp = open('log-pipeline.txt', 'a')
+    logq = Queue()
 
     def log(s):
         s = '[%s] %s' % (datetime.now().replace(microsecond=0), s)
@@ -74,50 +111,27 @@ def run_pipeline():
         logfp.write(s + '\n')
         logfp.flush()
 
-    conn = connect()
-    fetch_start = min([get_metadata(conn, '%s_fetch_end' % city) for city in CITIES]) - timedelta(days=1)
-
     log('-' * 40)
-    log('Sentiment analysis pipeline started!')
+    log('Starting worker processes...')
+
+    processes = [Process(target=pipeline_worker, args=(city, logq)) for city in CITIES]
+    for p in processes:
+        p.start()
 
     try:
-        # Main loop
-        log('Start fetching from date: %s' % fetch_start)
+        # Main thread: do logging
         while True:
-            fetch_start = fetch_start + timedelta(days=1)
-            fetch_end = fetch_start + timedelta(days=1)
-
-            # Wait for new data
-            while fetch_start > datetime.now() - timedelta(days=7):
-                sleep(60 * 60)
-
-            log('Fetching %s...' % fetch_start.date())
-            for city in CITIES:
-                fetch_count = 0
-                insert_count = 0
-                fetch_data = fetch(city, fetch_start, fetch_end)
-                if fetch_end < get_metadata(conn, '%s_fetch_end' % city):
-                    log('%s: skip' % capitalize(city))
-
-                data_list = []
-                for row in fetch_data['rows']:
-                    fetch_count += 1
-                    tweet = process_data_row(city, row)
-                    if tweet is not None:
-                        data_list.append(tweet)
-
-                if data_list:
-                    insert_count += insertmany(conn, city, data_list)
-                set_metadata(conn, '%s_fetch_end' % city, fetch_end)
-                set_metadata(conn, 'last_update', datetime.now())
-                log('%s: fetched: %d, inserted: %d' % (capitalize(city), fetch_count, insert_count))
+            log(logq.get())
 
     except KeyboardInterrupt:
         log('Keyboard interrupted! Exiting program...')
 
+    for p in processes:
+        p.terminate()
+        p.join()
+
     log('Program exited!')
     logfp.close()
-    conn.close()
 
 
 @click.command()
@@ -127,12 +141,15 @@ def run_pipeline():
 def main(init_database):
     if init_database:
         if click.confirm('Are you sure to initialize the database? This will clear the database if exists!'):
+            warnings.filterwarnings('ignore', category=Warning)
             initialize()
         else:
             print('Aborted.')
     else:
+        warnings.filterwarnings('ignore', category=Warning)
         run_pipeline()
 
 
 if __name__ == '__main__':
+    freeze_support()
     main()
