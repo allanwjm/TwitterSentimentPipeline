@@ -1,0 +1,8 @@
+vaderSentiment
+ujson
+pyshp
+matplotlib
+requests
+pymysql
+flask
+click
