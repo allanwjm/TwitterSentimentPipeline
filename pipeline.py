@@ -4,7 +4,6 @@ import ujson
 import warnings
 from datetime import datetime
 from datetime import timedelta
-from multiprocessing import Pipe
 from multiprocessing import Process
 from multiprocessing import Queue
 from multiprocessing import cpu_count
@@ -33,13 +32,13 @@ def capitalize(s):
     return s[0].upper() + s[1:]
 
 
-def process_doc(city, doc, pipe):
+def process_doc(city, doc, areaq):
     if doc['coordinates'] is None:
         return None
 
     lng, lat = doc['coordinates']['coordinates']
-    pipe.send((city, lng, lat))
-    sa1_code = pipe.recv()
+    areaq.put((city, lng, lat))
+    sa1_code = areaq.get()
     if sa1_code is None:
         return None
 
@@ -74,7 +73,7 @@ def process_doc(city, doc, pipe):
             pos, neu, neg, compound)
 
 
-def pipeline_worker(i, taskq, logq, pipe):
+def pipeline_worker(i, taskq, logq, areaq):
     warnings.filterwarnings('ignore', category=Warning)
     conn = connect()
     tmpfile = None
@@ -95,7 +94,7 @@ def pipeline_worker(i, taskq, logq, pipe):
                     row = row.strip().rstrip(',')
                     doc = ujson.loads(row)['doc']
                     fetch_count += 1
-                    tweet = process_doc(city, doc, pipe)
+                    tweet = process_doc(city, doc, areaq)
                     if tweet is not None:
                         data_list.append(tweet)
                 except ValueError:
@@ -143,22 +142,21 @@ def dispatch_worker(taskq):
 
 
 def sa_resolve_thread(arg):
-    paths, pipe = arg
+    paths, areaq = arg
     try:
         while True:
-            city, lng, lat = pipe.recv()
+            city, lng, lat = areaq.get()
             sa1_code = get_sa1_code(paths, city, lng, lat)
-            pipe.send(sa1_code)
-
+            areaq.put(sa1_code)
     except KeyboardInterrupt:
         pass
 
 
-def sa_resolve_worker(pipes):
+def sa_resolve_worker(areaqs):
     try:
         paths = load_paths()
-        pool = ThreadPool(len(pipes))
-        pool.map(sa_resolve_thread, [(paths, pipe) for pipe in pipes])
+        pool = ThreadPool(len(areaqs))
+        pool.map(sa_resolve_thread, [(paths, areaq) for areaq in areaqs])
         pool.terminate()
         pool.join()
     except KeyboardInterrupt:
@@ -188,12 +186,12 @@ def run_pipeline(number_workers):
 
     if number_workers is None:
         number_workers = cpu_count()
-    pipes = [Pipe(True) for i in range(number_workers)]
-    workers = [Process(target=pipeline_worker, args=(i, taskq, logq, pipes[i][0])) for i in range(number_workers)]
+    areaqs = [Queue for i in range(number_workers)]
+    workers = [Process(target=pipeline_worker, args=(i, taskq, logq, areaqs[i])) for i in range(number_workers)]
     for worker in workers:
         worker.start()
 
-    sa_resolver = Process(target=sa_resolve_worker, args=([pair[1] for pair in pipes],))
+    sa_resolver = Process(target=sa_resolve_worker, args=(areaqs,))
     sa_resolver.start()
 
     log('%d workers started.' % number_workers)
