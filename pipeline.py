@@ -186,7 +186,7 @@ def run_pipeline(number_workers):
 
     if number_workers is None:
         number_workers = cpu_count()
-    areaqs = [Queue for i in range(number_workers)]
+    areaqs = [Queue() for _ in range(number_workers)]
     workers = [Process(target=pipeline_worker, args=(i, taskq, logq, areaqs[i])) for i in range(number_workers)]
     for worker in workers:
         worker.start()
