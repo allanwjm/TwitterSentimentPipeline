@@ -15,12 +15,13 @@ from time import sleep
 import click
 
 from consts import CITIES
+from consts import TEMP_DIR
 from database import connect
 from database import get_metadata
 from database import initialize
 from database import insertmany
 from database import set_metadata
-from fetcher import fetch_as_tmpfile
+from fetcher import fetch_as_file
 from sentiment import get_sentiment_scores
 from statareas import get_sa1_code
 from statareas import load_paths
@@ -85,7 +86,8 @@ def pipeline_worker(i, taskq, logq, pipe):
             fetch_end = fetch_start + timedelta(days=1)
             fetch_count = 0
             insert_count = 0
-            tmpfile = fetch_as_tmpfile(city, fetch_start, fetch_end)
+            tmpfile = os.path.join(TEMP_DIR, '%s-%s.json' % (city, fetch_start.date()))
+            fetch_as_file(city, fetch_start, fetch_end, tmpfile)
             tmpfp = open(tmpfile, 'r', encoding='utf-8')
             data_list = []
             for row in tmpfp:
@@ -153,11 +155,14 @@ def sa_resolve_thread(arg):
 
 
 def sa_resolve_worker(pipes):
-    paths = load_paths()
-    pool = ThreadPool(len(pipes))
-    pool.map(sa_resolve_thread, [(paths, pipe) for pipe in pipes])
-    pool.terminate()
-    pool.join()
+    try:
+        paths = load_paths()
+        pool = ThreadPool(len(pipes))
+        pool.map(sa_resolve_thread, [(paths, pipe) for pipe in pipes])
+        pool.terminate()
+        pool.join()
+    except KeyboardInterrupt:
+        pass
 
 
 def run_pipeline(number_workers):
@@ -165,8 +170,8 @@ def run_pipeline(number_workers):
     logq = Queue()
     taskq = Queue(maxsize=100)
 
-    if not os.path.isdir('tmp'):
-        os.mkdir('tmp')
+    if not os.path.isdir(TEMP_DIR):
+        os.mkdir(TEMP_DIR)
 
     def log(s):
         s = '[%s] %s' % (datetime.now().replace(microsecond=0), s)

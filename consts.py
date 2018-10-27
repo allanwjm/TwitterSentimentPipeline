@@ -26,3 +26,6 @@ GCCSA = {
     '6GHOB': 'hobart',
     '8ACTE': 'canberra'}
 CITIES = list(GCCSA.values())
+
+# Download temp cache path
+TEMP_DIR = '/home/ubuntu/volume/pipelinecache'

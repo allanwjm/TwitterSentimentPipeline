@@ -8,7 +8,7 @@ from consts import COUCHDB_USERNAME
 _opener_installed = False
 
 
-def fetch_as_tmpfile(city, start, end, limit=None, include_docs=True):
+def fetch_as_file(city, start, end, filename, limit=None, include_docs=True):
     global _opener_installed
     if not _opener_installed:
         # Prepare for the authentication
@@ -29,5 +29,4 @@ def fetch_as_tmpfile(city, start, end, limit=None, include_docs=True):
         paras['limit'] = limit
 
     paras = urllib.parse.urlencode(paras).replace('%27', '%22')
-    filename, header = urllib.request.urlretrieve(COUCHDB_URL + '?' + paras, 'tmp/%s-%s.json' % (city, start.date()))
-    return filename
+    urllib.request.urlretrieve(COUCHDB_URL + '?' + paras, filename)
