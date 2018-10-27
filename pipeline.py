@@ -38,7 +38,7 @@ def process_doc(city, doc, areaq):
 
     lng, lat = doc['coordinates']['coordinates']
     areaq.put((city, lng, lat))
-    sa1_code = areaq.get()
+    sa1_code = areaq.get()[0]
     if sa1_code is None:
         return None
 
@@ -147,7 +147,7 @@ def sa_resolve_thread(arg):
         while True:
             city, lng, lat = areaq.get()
             sa1_code = get_sa1_code(paths, city, lng, lat)
-            areaq.put(sa1_code)
+            areaq.put((sa1_code,))
     except KeyboardInterrupt:
         pass
 

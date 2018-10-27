@@ -36,7 +36,10 @@ def get_sa1_code(paths, city, lng, lat):
 
 def get_sa2_code(paths, city, lng, lat):
     sa1_code = get_sa1_code(paths, city, lng, lat)
-    return int(sa1_code / 100)
+    if sa1_code is not None:
+        return int(sa1_code / 100)
+    else:
+        return None
 
 
 """
