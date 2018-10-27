@@ -4,12 +4,44 @@ from operator import itemgetter
 
 from matplotlib.path import Path
 
+from consts import CITIES
 from consts import SHAPES_FILENAME
 
+
+def load_paths():
+    shapes = pickle.load(gzip.open(SHAPES_FILENAME, 'rb'))
+    sa1_paths = {}
+    for city in CITIES:
+        paths = []
+        for code, data in shapes[city]['sa1'].items():
+            bounds = (data['top'], data['bottom'], data['left'], data['right'])
+            for polygon in data['polygons']:
+                path = Path(polygon)
+                paths.append([0, code, bounds, path])
+        sa1_paths[city] = paths
+    return sa1_paths
+
+
+def get_sa1_code(paths, city, lng, lat):
+    paths = paths[city]
+    for i, (count, code, bounds, path) in enumerate(paths):
+        if bounds[2] <= lng <= bounds[3] and \
+                bounds[1] <= lat <= bounds[0] and \
+                path.contains_point((lng, lat)):
+            paths[i][0] += 1
+            paths.sort(key=itemgetter(0), reverse=True)
+            return code
+    return None
+
+
+def get_sa2_code(paths, city, lng, lat):
+    sa1_code = get_sa1_code(paths, city, lng, lat)
+    return int(sa1_code / 100)
+
+
+"""
 _shapes = None
 _sa1_paths = {}
-_sa2_paths = {}
-
 
 def load_shapes():
     global _shapes
@@ -42,18 +74,6 @@ def load_sa2_paths(city):
     return _sa2_paths[city]
 
 
-def get_sa1_code(city, lng, lat):
-    paths = load_sa1_paths(city)
-    for i, (count, code, bounds, path) in enumerate(paths):
-        if bounds[2] <= lng <= bounds[3] and \
-                bounds[1] <= lat <= bounds[0] and \
-                path.contains_point((lng, lat)):
-            paths[i][0] += 1
-            paths.sort(key=itemgetter(0), reverse=True)
-            return code
-    return None
-
-
 def get_sa2_code(city, lng, lat):
     paths = load_sa2_paths(city)
     for i, (count, code, bounds, path) in enumerate(paths):
@@ -64,3 +84,4 @@ def get_sa2_code(city, lng, lat):
             paths.sort(key=itemgetter(0), reverse=True)
             return code
     return None
+"""

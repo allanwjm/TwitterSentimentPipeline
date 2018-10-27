@@ -1,11 +1,15 @@
+import os
 import sys
+import ujson
 import warnings
 from datetime import datetime
 from datetime import timedelta
+from multiprocessing import Pipe
 from multiprocessing import Process
 from multiprocessing import Queue
 from multiprocessing import cpu_count
 from multiprocessing import freeze_support
+from multiprocessing.pool import ThreadPool
 from time import sleep
 
 import click
@@ -16,9 +20,10 @@ from database import get_metadata
 from database import initialize
 from database import insertmany
 from database import set_metadata
-from fetcher import fetch
+from fetcher import fetch_as_tmpfile
 from sentiment import get_sentiment_scores
 from statareas import get_sa1_code
+from statareas import load_paths
 
 
 def capitalize(s):
@@ -27,26 +32,26 @@ def capitalize(s):
     return s[0].upper() + s[1:]
 
 
-def process_data_row(city, row):
-    t = row['doc']
-    if t['coordinates'] is None:
+def process_doc(city, doc, pipe):
+    if doc['coordinates'] is None:
         return None
 
-    lng, lat = t['coordinates']['coordinates']
-    sa1_code = get_sa1_code(city, lng, lat)
+    lng, lat = doc['coordinates']['coordinates']
+    pipe.send((city, lng, lat))
+    sa1_code = pipe.recv()
     if sa1_code is None:
         return None
 
     sa2_code = int(sa1_code / 100)
 
-    tid = int(t['id_str'])
-    user_id = int(t['user']['id_str'])
-    text = t['text']
-    created_at = datetime.strptime(t['created_at'], '%a %b %d %H:%M:%S %z %Y')
+    tid = int(doc['id_str'])
+    user_id = int(doc['user']['id_str'])
+    text = doc['text']
+    created_at = datetime.strptime(doc['created_at'], '%a %b %d %H:%M:%S %z %Y')
     created_at = created_at.replace(microsecond=0)
     year = created_at.year
 
-    lang = t['lang']
+    lang = doc['lang']
     if lang is None or len(lang) > 2:
         lang = '--'
 
@@ -68,36 +73,48 @@ def process_data_row(city, row):
             pos, neu, neg, compound)
 
 
-def pipeline_worker(i, taskq, logq):
+def pipeline_worker(i, taskq, logq, pipe):
     warnings.filterwarnings('ignore', category=Warning)
     conn = connect()
+    tmpfile = None
+    tmpfp = None
     try:
         # Worker main loop
         while True:
             city, fetch_start = taskq.get()
             fetch_end = fetch_start + timedelta(days=1)
-
             fetch_count = 0
             insert_count = 0
-            fetch_data = fetch(city, fetch_start, fetch_end)
+            tmpfile = fetch_as_tmpfile(city, fetch_start, fetch_end)
+            tmpfp = open(tmpfile, 'r', encoding='utf-8')
             data_list = []
-            for row in fetch_data['rows']:
-                fetch_count += 1
-                tweet = process_data_row(city, row)
-                if tweet is not None:
-                    data_list.append(tweet)
+            for row in tmpfp:
+                try:
+                    row = row.strip().rstrip(',')
+                    doc = ujson.loads(row)['doc']
+                    fetch_count += 1
+                    tweet = process_doc(city, doc, pipe)
+                    if tweet is not None:
+                        data_list.append(tweet)
+                except ValueError:
+                    continue
 
             if data_list:
                 insert_count += insertmany(conn, city, data_list)
             set_metadata(conn, '%s_fetch_end' % city, fetch_end)
             logq.put('%2d: %-9s %s: fetched: %d, inserted: %d' % (
                 i, capitalize(city), fetch_start.date(), fetch_count, insert_count))
+            tmpfp.close()
+            os.unlink(tmpfile)
 
     except KeyboardInterrupt:
         pass
 
     finally:
         conn.close()
+        if tmpfp is not None and not tmpfp.closed:
+            tmpfp.close()
+            os.unlink(tmpfile)
 
 
 def dispatch_worker(taskq):
@@ -123,10 +140,33 @@ def dispatch_worker(taskq):
         conn.close()
 
 
-def run_pipeline():
+def sa_resolve_thread(arg):
+    paths, pipe = arg
+    try:
+        while True:
+            city, lng, lat = pipe.recv()
+            sa1_code = get_sa1_code(paths, city, lng, lat)
+            pipe.send(sa1_code)
+
+    except KeyboardInterrupt:
+        pass
+
+
+def sa_resolve_worker(pipes):
+    paths = load_paths()
+    pool = ThreadPool(len(pipes))
+    pool.map(sa_resolve_thread, [(paths, pipe) for pipe in pipes])
+    pool.terminate()
+    pool.join()
+
+
+def run_pipeline(number_workers):
     logfp = open('log-pipeline.txt', 'a')
     logq = Queue()
     taskq = Queue(maxsize=100)
+
+    if not os.path.isdir('tmp'):
+        os.mkdir('tmp')
 
     def log(s):
         s = '[%s] %s' % (datetime.now().replace(microsecond=0), s)
@@ -141,10 +181,17 @@ def run_pipeline():
     dispatcher = Process(target=dispatch_worker, args=(taskq,))
     dispatcher.start()
 
-    workers = [Process(target=pipeline_worker, args=(i, taskq, logq)) for i in range(cpu_count())]
+    if number_workers is None:
+        number_workers = cpu_count()
+    pipes = [Pipe(True) for i in range(number_workers)]
+    workers = [Process(target=pipeline_worker, args=(i, taskq, logq, pipes[i][0])) for i in range(number_workers)]
     for worker in workers:
         worker.start()
-    log('%d workers started.' % len(workers))
+
+    sa_resolver = Process(target=sa_resolve_worker, args=([pair[1] for pair in pipes],))
+    sa_resolver.start()
+
+    log('%d workers started.' % number_workers)
 
     try:
         # Main thread: do logging
@@ -159,6 +206,8 @@ def run_pipeline():
     for worker in workers:
         worker.terminate()
         worker.join()
+    sa_resolver.terminate()
+    sa_resolver.join()
 
     log('Program exited!')
     logfp.close()
@@ -168,14 +217,17 @@ def run_pipeline():
 @click.option('--init-database', '-i',
               is_flag=True, default=False,
               help='Initialize and clear the database')
-def main(init_database):
+@click.option('--number-workers', '-n',
+              type=int, default=None,
+              help='Number of workers')
+def main(init_database, number_workers):
     if init_database:
         if click.confirm('Are you sure to initialize the database? This will clear the database if exists!'):
             initialize()
         else:
             print('Aborted.')
     else:
-        run_pipeline()
+        run_pipeline(number_workers)
 
 
 if __name__ == '__main__':

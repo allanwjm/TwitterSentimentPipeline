@@ -1,4 +1,3 @@
-import ujson as json
 import urllib.parse
 import urllib.request
 
@@ -9,7 +8,7 @@ from consts import COUCHDB_USERNAME
 _opener_installed = False
 
 
-def fetch(city, start, end, include_docs=True):
+def fetch_as_tmpfile(city, start, end, limit=None, include_docs=True):
     global _opener_installed
     if not _opener_installed:
         # Prepare for the authentication
@@ -26,7 +25,9 @@ def fetch(city, start, end, include_docs=True):
         'end_key': [city, end.year, end.month, end.day],
         'reduce': 'false',
         'include_docs': 'true' if include_docs else 'false'}
+    if limit:
+        paras['limit'] = limit
+
     paras = urllib.parse.urlencode(paras).replace('%27', '%22')
-    response = urllib.request.urlopen(COUCHDB_URL + '?' + paras)
-    data = json.load(response)
-    return data
+    filename, header = urllib.request.urlretrieve(COUCHDB_URL + '?' + paras, 'tmp/%s-%s.json' % (city, start.date()))
+    return filename
