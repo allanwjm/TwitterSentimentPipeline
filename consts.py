@@ -1,7 +1,10 @@
+import platform
+
 # Fetch data from the couchDB
 COUCHDB_URL = 'http://45.113.232.90/couchdbro/twitter/_design/twitter/_view/summary'
 COUCHDB_USERNAME = 'readonly'
 COUCHDB_PASSWORD = 'ween7ighai9gahR6'
+COUCHDB_LIMIT = None
 
 # Shapefiles
 # Download from here: http://www.abs.gov.au/AUSSTATS/abs@.nsf/DetailsPage/1270.0.55.001July%202016?OpenDocument
@@ -29,3 +32,8 @@ CITIES = list(GCCSA.values())
 
 # Download temp cache path
 TEMP_DIR = '/home/ubuntu/volume/pipelinecache'
+
+if platform.system() == 'Windows':  # Debug
+    COUCHDB_LIMIT = 10
+    DATABASE_PASSWORD = '8031'
+    TEMP_DIR = 'tmp'

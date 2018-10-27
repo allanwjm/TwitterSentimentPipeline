@@ -14,6 +14,7 @@ from time import sleep
 import click
 
 from consts import CITIES
+from consts import COUCHDB_LIMIT
 from consts import TEMP_DIR
 from database import connect
 from database import get_metadata
@@ -32,13 +33,13 @@ def capitalize(s):
     return s[0].upper() + s[1:]
 
 
-def process_doc(city, doc, areaq):
+def process_doc(city, doc, areaq, saq):
     if doc['coordinates'] is None:
         return None
 
     lng, lat = doc['coordinates']['coordinates']
     areaq.put((city, lng, lat))
-    sa1_code = areaq.get()[0]
+    sa1_code = saq.get()
     if sa1_code is None:
         return None
 
@@ -73,7 +74,7 @@ def process_doc(city, doc, areaq):
             pos, neu, neg, compound)
 
 
-def pipeline_worker(i, taskq, logq, areaq):
+def pipeline_worker(i, taskq, logq, areaq, saq):
     warnings.filterwarnings('ignore', category=Warning)
     conn = connect()
     tmpfile = None
@@ -86,7 +87,7 @@ def pipeline_worker(i, taskq, logq, areaq):
             fetch_count = 0
             insert_count = 0
             tmpfile = os.path.join(TEMP_DIR, '%s-%s.json' % (city, fetch_start.date()))
-            fetch_as_file(city, fetch_start, fetch_end, tmpfile)
+            fetch_as_file(city, fetch_start, fetch_end, tmpfile, limit=COUCHDB_LIMIT)
             tmpfp = open(tmpfile, 'r', encoding='utf-8')
             data_list = []
             for row in tmpfp:
@@ -94,7 +95,7 @@ def pipeline_worker(i, taskq, logq, areaq):
                     row = row.strip().rstrip(',')
                     doc = ujson.loads(row)['doc']
                     fetch_count += 1
-                    tweet = process_doc(city, doc, areaq)
+                    tweet = process_doc(city, doc, areaq, saq)
                     if tweet is not None:
                         data_list.append(tweet)
                 except ValueError:
@@ -142,21 +143,21 @@ def dispatch_worker(taskq):
 
 
 def sa_resolve_thread(arg):
-    paths, areaq = arg
+    paths, areaq, saq = arg
     try:
         while True:
             city, lng, lat = areaq.get()
             sa1_code = get_sa1_code(paths, city, lng, lat)
-            areaq.put((sa1_code,))
+            saq.put(sa1_code)
     except KeyboardInterrupt:
         pass
 
 
-def sa_resolve_worker(areaqs):
+def sa_resolve_worker(areaqs, saqs):
     try:
         paths = load_paths()
         pool = ThreadPool(len(areaqs))
-        pool.map(sa_resolve_thread, [(paths, areaq) for areaq in areaqs])
+        pool.map(sa_resolve_thread, [(paths, areaqs[i], saqs[i]) for i in range(len(areaqs))])
         pool.terminate()
         pool.join()
     except KeyboardInterrupt:
@@ -187,11 +188,14 @@ def run_pipeline(number_workers):
     if number_workers is None:
         number_workers = cpu_count()
     areaqs = [Queue() for _ in range(number_workers)]
-    workers = [Process(target=pipeline_worker, args=(i, taskq, logq, areaqs[i])) for i in range(number_workers)]
+    saqs = [Queue() for _ in range(number_workers)]
+    workers = [Process(target=pipeline_worker,
+                       args=(i, taskq, logq, areaqs[i], saqs[i]))
+               for i in range(number_workers)]
     for worker in workers:
         worker.start()
 
-    sa_resolver = Process(target=sa_resolve_worker, args=(areaqs,))
+    sa_resolver = Process(target=sa_resolve_worker, args=(areaqs, saqs))
     sa_resolver.start()
 
     log('%d workers started.' % number_workers)
