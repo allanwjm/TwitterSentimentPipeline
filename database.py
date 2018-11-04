@@ -11,14 +11,15 @@ from consts import DATABASE_SCHEMA
 from consts import DATABASE_USER
 
 
-def connect(schema=DATABASE_SCHEMA):
+def connect(schema=DATABASE_SCHEMA, cursorclass=pymysql.cursors.Cursor):
     return pymysql.connect(
         host=DATABASE_HOST,
         user=DATABASE_USER,
         passwd=DATABASE_PASSWORD,
         db=schema,
         port=DATABASE_PORT,
-        charset='utf8mb4')
+        charset='utf8mb4',
+        cursorclass=cursorclass)
 
 
 def initialize():

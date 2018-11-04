@@ -1,7 +1,7 @@
 # Twitter Sentiment Analysis Pipeline
 The *Twitter Sentiment Pipeline* is the **pipeline** version of the [Twitter Analysis Project](https://github.com/allanwjm/TwitterAnalysis).
 
-This program will fetch data from the **CouchDB** database, process them and store in the local **MySQL** database for generating the sentiment analysis results as `CVS` files throught Restful APIs.
+This program will fetch data from the **CouchDB** database, process them and store in the local **MySQL** database for generating the sentiment analysis results as **CSV** files throught Restful APIs.
 
 ## Installation
 This program requires **Python 3** and **MySQL**. Any other dependencies are listed in `requirements.txt`.
@@ -41,4 +41,15 @@ This program requires **Python 3** and **MySQL**. Any other dependencies are lis
 ## APIs
 The analysis result can be accessed through RESTful APIs. They are in `CSV` format so can be imported into **AURIN**.
 
-(\*) Sorry but the API program is still under constructing. It will be there before Friday 2 November!
+Start the API program using this:
+```bash
+python api.py -p <PORT>
+```
+
+The default port is **5000**.
+
+Then request the **CSV** file with this URL: `/csv/<CITY>`
+
+Available cities: *adelaide*, *brisbane*, *canberra*, *hobart*, *melbourne*, *perth*, *sydney*.
+
+The filters like *Year*, *Weekday* and so on is still under construction! I will continue this after finish the final exam...

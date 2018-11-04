@@ -8,8 +8,12 @@ from consts import CITIES
 from consts import SHAPES_FILENAME
 
 
+def load_shapes():
+    return pickle.load(gzip.open(SHAPES_FILENAME, 'rb'))
+
+
 def load_paths():
-    shapes = pickle.load(gzip.open(SHAPES_FILENAME, 'rb'))
+    shapes = load_shapes()
     sa1_paths = {}
     for city in CITIES:
         paths = []
@@ -40,6 +44,12 @@ def get_sa2_code(paths, city, lng, lat):
         return int(sa1_code / 100)
     else:
         return None
+
+
+def get_sa2_name(shapes, city, sa2_code):
+    if sa2_code in shapes[city]['sa2']:
+        return shapes[city]['sa2'][sa2_code]['sa2_name']
+    return None
 
 
 """
