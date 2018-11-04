@@ -46,10 +46,26 @@ Start the API program using this:
 python api.py -p <PORT>
 ```
 
-The default port is **5000**.
+Then request the **CSV** file with this URL: `/csv/<CITY>`. Try the API hosted on our *Nectar* node:
+```http request
+http://115.146.92.26:8000/csv/<CITY>
+```
 
-Then request the **CSV** file with this URL: `/csv/<CITY>`
+Available Cities:
+* [Adelaide](http://115.146.92.26:8000/csv/adelaide)
+* [Brisbane](http://115.146.92.26:8000/csv/brisbane)
+* [Canberra](http://115.146.92.26:8000/csv/canberra)
+* [Hobart](http://115.146.92.26:8000/csv/hobart)
+* [Melbourne](http://115.146.92.26:8000/csv/melbourne)
+* [Perth](http://115.146.92.26:8000/csv/perth)
+* [Sydney](http://115.146.92.26:8000/csv/sydney)
 
-Available cities: *adelaide*, *brisbane*, *canberra*, *hobart*, *melbourne*, *perth*, *sydney*.
+It may take a while to process the data... You can see a generated file `melbourne.csv` directly in this repository.
 
-The filters like *Year*, *Weekday* and so on is still under construction! I will continue this after finish the final exam...
+![CSV Screenshot](screenshot-csv.png)
+
+---
+## TODO...
+
+The API parameters like *Year*, *Weekday* and so on is still under construction!
+I will continue this after finish the final exam...
